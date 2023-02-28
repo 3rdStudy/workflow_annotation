@@ -31,9 +31,12 @@ include_directories(${CMAKE_SOURCE_DIR}/3rd)
 set(CMAKE_CXX_FLAGS_DEBUG "-O0")
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 
+include_directories(${PROJECT_SOURCE_DIR}/../workflow/_include)
+link_directories(${PROJECT_SOURCE_DIR}/../workflow/_lib)
+
 # add_subdirectory(${PROJECT_SOURCE_DIR}/01_echo)
 # add_subdirectory(${PROJECT_SOURCE_DIR}/02_stop)
-# add_subdirectory(${PROJECT_SOURCE_DIR}/03_parallel)
+add_subdirectory(${PROJECT_SOURCE_DIR}/03_parallel)
 # add_subdirectory(${PROJECT_SOURCE_DIR}/04_wget)
 # add_subdirectory(${PROJECT_SOURCE_DIR}/05_http_echo)
 # add_subdirectory(${PROJECT_SOURCE_DIR}/06_http_proxy)
