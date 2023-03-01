@@ -1,8 +1,8 @@
 add_executable(07_http_req 07_http_req.cc)
 target_link_libraries(07_http_req workflow)
 
-# add_executable(http_series http_series.cc)
-# target_link_libraries(http_series workflow spdlog::spdlog)
+add_executable(http_series http_series.cc)
+target_link_libraries(http_series workflow spdlog)
 
 # add_executable(http_parallel http_parallel.cc)
 # target_link_libraries(http_parallel workflow spdlog::spdlog)

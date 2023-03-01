@@ -5,30 +5,27 @@
 // 匿名计数器直接通过WFCounterTask的count方法来增加计数
 // 命名计数器，可以通过count, count_by_name函数来增加计数
 
-
-#include <spdlog/spdlog.h>
-#include <workflow/WFTaskFactory.h>
-#include <workflow/WFHttpServer.h>
-#include <workflow/WFFacilities.h>
 #include <signal.h>
+#include <spdlog/spdlog.h>
+#include <workflow/WFFacilities.h>
+#include <workflow/WFHttpServer.h>
+#include <workflow/WFTaskFactory.h>
 
-int main()
-{
-    const int cnt = 3;
-    WFFacilities::WaitGroup wait_group(1);
-    WFCounterTask *counter =
-        WFTaskFactory::create_counter_task("counter",
-                                           cnt,
-                                           [&wait_group](WFCounterTask *counter)
-                                           {
-                                               spdlog::info("counter callback");
-                                               wait_group.done();
-                                           });
+int main() {
+  const int cnt = 5;
+  WFFacilities::WaitGroup wait_group(1);
+  WFCounterTask *counter = WFTaskFactory::create_counter_task(
+      "counter", cnt, [&wait_group](WFCounterTask *counter) {
+        spdlog::info("counter callback");
+        wait_group.done();
+      });
 
-    counter->count();
-    counter->start();
-    spdlog::info("counter start");
-    WFTaskFactory::count_by_name("counter");
-    WFTaskFactory::count_by_name("counter", 1);
-    wait_group.wait();
+  counter->count();
+  counter->start();
+  spdlog::info("counter start");
+  WFTaskFactory::count_by_name("counter");
+  WFTaskFactory::count_by_name("counter", 1);
+  WFTaskFactory::count_by_name("counter", 2);
+  WFTaskFactory::count_by_name("counter", 3);
+  wait_group.wait();
 }
