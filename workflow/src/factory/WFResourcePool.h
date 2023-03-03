@@ -21,53 +21,49 @@
 #define _WFRESOURCEPOOL_H_
 
 #include <mutex>
-#include "list.h"
+
 #include "WFTask.h"
+#include "list.h"
 
-class WFResourcePool
-{
-public:
-	WFConditional *get(SubTask *task, void **resbuf);
-	void post(void *res);
+class WFResourcePool {
+ public:
+  WFConditional *get(SubTask *task, void **resbuf);
+  void post(void *res);
 
-public:
-	struct Data
-	{
-		void *pop() { return this->pool->pop(); }
-		void push(void *res) { this->pool->push(res); }
+ public:
+  struct Data {
+    void *pop() { return this->pool->pop(); }
+    void push(void *res) { this->pool->push(res); }
 
-		void **res;  // void* 的数组, 管理资源池中的资源
-		long value;   // 这里是剩余资源的大小
-		size_t index;
-		struct list_head wait_list;   // 把等待的conditional task串成链表
-		std::mutex mutex;
-		WFResourcePool *pool;
-	};
+    void **res;  // void* 的数组, 管理资源池中的资源
+    long value;  // 这里是剩余资源的大小
+    size_t index;
+    struct list_head wait_list;  // 把等待的conditional task串成链表
+    std::mutex mutex;
+    WFResourcePool *pool;
+  };
 
-private:
-	virtual void *pop()
-	{
-		LOG_TRACE("WFResourcePool:: pop");
-		return this->data.res[this->data.index++];
-	}
+ private:
+  virtual void *pop() {
+    LOG_TRACE("WFResourcePool:: pop");
+    return this->data.res[this->data.index++];
+  }
 
-	virtual void push(void *res)
-	{
-		LOG_TRACE("WFResourcePool:: push");
-		this->data.res[--this->data.index] = res;
-	}
+  virtual void push(void *res) {
+    LOG_TRACE("WFResourcePool:: push");
+    this->data.res[--this->data.index] = res;
+  }
 
-private:
-	struct Data data;
+ private:
+  struct Data data;
 
-private:
-	void create(size_t n);
+ private:
+  void create(size_t n);
 
-public:
-	WFResourcePool(void *const *res, size_t n);
-	WFResourcePool(size_t n);
-	virtual ~WFResourcePool() { delete []this->data.res; }
+ public:
+  WFResourcePool(void *const *res, size_t n);
+  WFResourcePool(size_t n);
+  virtual ~WFResourcePool() { delete[] this->data.res; }
 };
 
 #endif
-

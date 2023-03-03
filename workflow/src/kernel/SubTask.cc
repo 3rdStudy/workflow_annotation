@@ -25,58 +25,50 @@
  * 但这个过程是通过ParallelTask::dispatch()顺序依次分发的
  * 另外从服务端接收到数据，放进msgqueue,网络线程池触发handle,每次都必须调用subtask_done，
  * 最终调用用户注册的回掉函数，如果是基于此，并行处理的主要机制其实就是利用queue的特性，多个线程调用各自的注册的回掉函数；
- * 
+ *
  */
-void SubTask::subtask_done()
-{
-	SubTask *cur = this;
-	ParallelTask *parent;
-	SubTask **entry;
+void SubTask::subtask_done() {
+  SubTask *cur = this;
+  ParallelTask *parent;
+  SubTask **entry;
 
-	while (1)
-	{
-		// 任何的Task都是parellel的subTask
-		parent = cur->parent;
-		entry = cur->entry;
-		cur = cur->done();    // 调用任务回调函数
-		if (cur)   // 返回了串行的下一个task
-		{
-			cur->parent = parent;
-			cur->entry = entry;
-			if (parent)
-				*entry = cur;
+  while (1) {
+    // 任何的Task都是parellel的subTask
+    parent = cur->parent;
+    entry = cur->entry;
+    // 执行这个任务本身的回调，一般是对资源的释放。
+    cur = cur->done();  // 调用任务回调函数， 返回NULL, 则说明没有下个任务了。
+    auto next = cur;
+    if (next)  // 返回了串行的下一个task
+    {
+      next->parent = parent;
+      next->entry = entry;
+      if (parent) *entry = next;
 
-			cur->dispatch();  // 不同任务分发至不同的处理请求
-		}
-		else if (parent)   // 如果没有下一个任务了，就往上走
-		{
-			if (__sync_sub_and_fetch(&parent->nleft, 1) == 0)
-			{
-				cur = parent;
-				continue;
-			}
-		}
+      next->dispatch();  // 不同任务分发至不同的处理请求
+    } else if (parent)   // 如果没有下一个任务了，就往上走
+    {
+      if (__sync_sub_and_fetch(&parent->nleft, 1) == 0) {
+        cur = parent;
+        continue;
+      }
+    }
 
-		break;
-	}
+    break;
+  }
 }
 
-void ParallelTask::dispatch()
-{
-	SubTask **end = this->subtasks + this->subtasks_nr;
-	SubTask **p = this->subtasks;
+void ParallelTask::dispatch() {
+  SubTask **end = this->subtasks + this->subtasks_nr;
+  SubTask **p = this->subtasks;
 
-	this->nleft = this->subtasks_nr;
-	if (this->nleft != 0)
-	{
-		do
-		{
-			(*p)->parent = this;
-			(*p)->entry = p;
-			(*p)->dispatch();
-		} while (++p != end);
-	}
-	else
-		this->subtask_done();
+  this->nleft = this->subtasks_nr;
+  if (this->nleft != 0) {
+    do {
+      (*p)->parent = this;
+      (*p)->entry = p;
+      (*p)->dispatch();
+    } while (++p != end);
+  } else
+    this->subtask_done();
 }
-

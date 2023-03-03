@@ -31,6 +31,7 @@
 #include "logger.h"
 #include "poller.h"
 
+// 用来设置连接上下文的
 class CommConnection {
  protected:
   virtual ~CommConnection() {}
