@@ -21,649 +21,556 @@
 /*
 inl 文件是内联函数的源文件。 内联函数通常在c++头文件中实现，
 但有的时候内联函数较多或者出于一些别的考虑（使头文件看起来更简洁等），往往会将这部分具体定义的代码添加到INL文件中，
-然后在该头文件的末尾将其用#include引入。 
+然后在该头文件的末尾将其用#include引入。
 由此也可以看到inl文件的例外一个用法的影子——模板函数、模板类的定义代码的存放
 */
 
-#include <sys/types.h>
-#include <sys/socket.h>
 #include <errno.h>
-#include <time.h>
 #include <netdb.h>
 #include <stdio.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <time.h>
+
+#include <functional>
 #include <new>
 #include <string>
-#include <functional>
 #include <utility>
-#include "WFGlobal.h"
-#include "Workflow.h"
-#include "WFTask.h"
+
+#include "EndpointParams.h"
 #include "RouteManager.h"
 #include "URIParser.h"
-#include "WFTaskError.h"
-#include "EndpointParams.h"
+#include "WFGlobal.h"
 #include "WFNameService.h"
+#include "WFTask.h"
+#include "WFTaskError.h"
+#include "Workflow.h"
 #include "logger.h"
 
-class __WFGoTask : public WFGoTask
-{
-protected:
-	virtual void execute()
-	{
-		this->go();
-	}
+class __WFGoTask : public WFGoTask {
+ protected:
+  virtual void execute() { this->go(); }
 
-protected:
-	std::function<void ()> go;
+ protected:
+  std::function<void()> go;
 
-public:
-	__WFGoTask(ExecQueue *queue, Executor *executor,
-			   std::function<void ()>&& func) :
-		WFGoTask(queue, executor),
-		go(std::move(func))
-	{
-	}
+ public:
+  __WFGoTask(ExecQueue *queue, Executor *executor, std::function<void()> &&func)
+      : WFGoTask(queue, executor), go(std::move(func)) {}
 };
 
-template<class FUNC, class... ARGS>
-inline WFGoTask *WFTaskFactory::create_go_task(const std::string& queue_name,
-											   FUNC&& func, ARGS&&... args)
-{
-	auto&& tmp = std::bind(std::forward<FUNC>(func),
-						   std::forward<ARGS>(args)...);
-	return new __WFGoTask(WFGlobal::get_exec_queue(queue_name),
-						  WFGlobal::get_compute_executor(),
-						  std::move(tmp));
+template <class FUNC, class... ARGS>
+inline WFGoTask *WFTaskFactory::create_go_task(const std::string &queue_name,
+                                               FUNC &&func, ARGS &&...args) {
+  auto &&tmp = std::bind(std::forward<FUNC>(func), std::forward<ARGS>(args)...);
+  return new __WFGoTask(WFGlobal::get_exec_queue(queue_name),
+                        WFGlobal::get_compute_executor(), std::move(tmp));
 }
 
-class __WFDynamicTask : public WFDynamicTask
-{
-protected:
-	virtual void dispatch()
-	{
-		series_of(this)->push_front(this->create(this));
-		this->WFDynamicTask::dispatch();
-	}
+class __WFDynamicTask : public WFDynamicTask {
+ protected:
+  virtual void dispatch() {
+    series_of(this)->push_front(this->create(this));
+    this->WFDynamicTask::dispatch();
+  }
 
-protected:
-	std::function<SubTask *(WFDynamicTask *)> create;
+ protected:
+  std::function<SubTask *(WFDynamicTask *)> create;
 
-public:
-	__WFDynamicTask(std::function<SubTask *(WFDynamicTask *)>&& func) :
-		create(std::move(func))
-	{
-	}
+ public:
+  __WFDynamicTask(std::function<SubTask *(WFDynamicTask *)> &&func)
+      : create(std::move(func)) {}
 };
 
-inline WFDynamicTask *
-WFTaskFactory::create_dynamic_task(dynamic_create_t create)
-{
-	return new __WFDynamicTask(std::move(create));
+inline WFDynamicTask *WFTaskFactory::create_dynamic_task(
+    dynamic_create_t create) {
+  return new __WFDynamicTask(std::move(create));
 }
 
-template<class REQ, class RESP, typename CTX = bool>
-class WFComplexClientTask : public WFClientTask<REQ, RESP>
-{
-protected:
-	using task_callback_t = std::function<void (WFNetworkTask<REQ, RESP> *)>;
+template <class REQ, class RESP, typename CTX = bool>
+class WFComplexClientTask : public WFClientTask<REQ, RESP> {
+ protected:
+  using task_callback_t = std::function<void(WFNetworkTask<REQ, RESP> *)>;
 
-public:
-	WFComplexClientTask(int retry_max, task_callback_t&& cb):
-		WFClientTask<REQ, RESP>(NULL, WFGlobal::get_scheduler(), std::move(cb))
-	{
-		LOG_TRACE("WFComplexClientTask create");
-		type_ = TT_TCP;
-		fixed_addr_ = false;
-		retry_max_ = retry_max;
-		retry_times_ = 0;
-		redirect_ = false;
-		ns_policy_ = NULL;
-		router_task_ = NULL;
-	}
+ public:
+  WFComplexClientTask(int retry_max, task_callback_t &&cb)
+      : WFClientTask<REQ, RESP>(NULL, WFGlobal::get_scheduler(),
+                                std::move(cb)) {
+    LOG_TRACE("WFComplexClientTask create");
+    type_ = TT_TCP;
+    fixed_addr_ = false;
+    retry_max_ = retry_max;
+    retry_times_ = 0;
+    redirect_ = false;
+    ns_policy_ = NULL;
+    router_task_ = NULL;
+  }
 
-protected:
-	// new api for children
-	virtual bool init_success() { return true; }
-	virtual void init_failed() {}
-	virtual bool check_request() { return true; }
-	virtual WFRouterTask *route();
-	virtual bool finish_once() { return true; }
+ protected:
+  // new api for children
+  virtual bool init_success() { return true; }
+  virtual void init_failed() {}
+  virtual bool check_request() { return true; }
+  virtual WFRouterTask *route();
+  virtual bool finish_once() { return true; }
 
-public:
-	void init(const ParsedURI& uri)
-	{
-		uri_ = uri;
-		init_with_uri();
-	}
+ public:
+  void init(const ParsedURI &uri) {
+    uri_ = uri;
+    init_with_uri();
+  }
 
-	void init(ParsedURI&& uri)
-	{
-		uri_ = std::move(uri);
-		init_with_uri();
-	}
+  void init(ParsedURI &&uri) {
+    uri_ = std::move(uri);
+    init_with_uri();
+  }
 
-	void init(TransportType type,
-			  const struct sockaddr *addr,
-			  socklen_t addrlen,
-			  const std::string& info);
+  void init(TransportType type, const struct sockaddr *addr, socklen_t addrlen,
+            const std::string &info);
 
-	void set_transport_type(TransportType type)
-	{
-		type_ = type;
-	}
+  void set_transport_type(TransportType type) { type_ = type; }
 
-	TransportType get_transport_type() const { return type_; }
+  TransportType get_transport_type() const { return type_; }
 
-	virtual const ParsedURI *get_current_uri() const { return &uri_; }
+  virtual const ParsedURI *get_current_uri() const { return &uri_; }
 
-	void set_redirect(const ParsedURI& uri)
-	{
-		redirect_ = true;
-		init(uri);
-	}
+  void set_redirect(const ParsedURI &uri) {
+    redirect_ = true;
+    init(uri);
+  }
 
-	void set_redirect(TransportType type, const struct sockaddr *addr,
-					  socklen_t addrlen, const std::string& info)
-	{
-		redirect_ = true;
-		init(type, addr, addrlen, info);
-	}
+  void set_redirect(TransportType type, const struct sockaddr *addr,
+                    socklen_t addrlen, const std::string &info) {
+    redirect_ = true;
+    init(type, addr, addrlen, info);
+  }
 
-protected:
-	void set_info(const std::string& info)
-	{
-		info_.assign(info);
-	}
+ protected:
+  void set_info(const std::string &info) { info_.assign(info); }
 
-	void set_info(const char *info)
-	{
-		info_.assign(info);
-	}
+  void set_info(const char *info) { info_.assign(info); }
 
-protected:
-	virtual void dispatch();
-	virtual SubTask *done();
+ protected:
+  virtual void dispatch();
+  virtual SubTask *done();
 
-	void clear_resp()
-	{
-		size_t size = this->resp.get_size_limit();
+  void clear_resp() {
+    size_t size = this->resp.get_size_limit();
 
-		this->resp.~RESP();
-		new(&this->resp) RESP();
-		this->resp.set_size_limit(size);
-	}
+    this->resp.~RESP();
+    new (&this->resp) RESP();
+    this->resp.set_size_limit(size);
+  }
 
-	void disable_retry()
-	{
-		retry_times_ = retry_max_;
-	}
+  void disable_retry() { retry_times_ = retry_max_; }
 
-protected:
-	TransportType type_;
-	ParsedURI uri_;
-	std::string info_;
-	bool fixed_addr_;
-	bool redirect_;
-	CTX ctx_;
-	int retry_max_;
-	int retry_times_;
-	WFNSPolicy *ns_policy_;
-	WFRouterTask *router_task_;
-	RouteManager::RouteResult route_result_;
-	WFNSTracing tracing_;
+ protected:
+  TransportType type_;
+  ParsedURI uri_;
+  std::string info_;
+  bool fixed_addr_;
+  bool redirect_;
+  CTX ctx_;
+  int retry_max_;
+  int retry_times_;
+  WFNSPolicy *ns_policy_;
+  WFRouterTask *router_task_;
+  RouteManager::RouteResult route_result_;
+  WFNSTracing tracing_;
 
-public:
-	CTX *get_mutable_ctx() { return &ctx_; }
+ public:
+  CTX *get_mutable_ctx() { return &ctx_; }
 
-private:
-	void clear_prev_state();
-	void init_with_uri();
-	bool set_port();
-	void router_callback(WFRouterTask *task);
-	void switch_callback(WFTimerTask *task);
+ private:
+  void clear_prev_state();
+  void init_with_uri();
+  bool set_port();
+  void router_callback(WFRouterTask *task);
+  void switch_callback(WFTimerTask *task);
 };
 
-template<class REQ, class RESP, typename CTX>
-void WFComplexClientTask<REQ, RESP, CTX>::clear_prev_state()
-{
-	ns_policy_ = NULL;
-	route_result_.clear();
-	if (tracing_.deleter)
-	{
-		tracing_.deleter(this->tracing_.data);
-		tracing_.deleter = NULL;
-	}
-	tracing_.data = NULL;
-	retry_times_ = 0;
-	this->state = WFT_STATE_UNDEFINED;
-	this->error = 0;
-	this->timeout_reason = TOR_NOT_TIMEOUT;
+template <class REQ, class RESP, typename CTX>
+void WFComplexClientTask<REQ, RESP, CTX>::clear_prev_state() {
+  ns_policy_ = NULL;
+  route_result_.clear();
+  if (tracing_.deleter) {
+    tracing_.deleter(this->tracing_.data);
+    tracing_.deleter = NULL;
+  }
+  tracing_.data = NULL;
+  retry_times_ = 0;
+  this->state = WFT_STATE_UNDEFINED;
+  this->error = 0;
+  this->timeout_reason = TOR_NOT_TIMEOUT;
 }
 
-template<class REQ, class RESP, typename CTX>
+template <class REQ, class RESP, typename CTX>
 void WFComplexClientTask<REQ, RESP, CTX>::init(TransportType type,
-											   const struct sockaddr *addr,
-											   socklen_t addrlen,
-											   const std::string& info)
-{
-	if (redirect_)
-		clear_prev_state();
+                                               const struct sockaddr *addr,
+                                               socklen_t addrlen,
+                                               const std::string &info) {
+  if (redirect_) clear_prev_state();
 
-	auto params = WFGlobal::get_global_settings()->endpoint_params;
-	struct addrinfo addrinfo = { };
-	addrinfo.ai_family = addr->sa_family;
-	addrinfo.ai_socktype = SOCK_STREAM;
-	addrinfo.ai_addr = (struct sockaddr *)addr;
-	addrinfo.ai_addrlen = addrlen;
+  auto params = WFGlobal::get_global_settings()->endpoint_params;
+  struct addrinfo addrinfo = {};
+  addrinfo.ai_family = addr->sa_family;
+  addrinfo.ai_socktype = SOCK_STREAM;
+  addrinfo.ai_addr = (struct sockaddr *)addr;
+  addrinfo.ai_addrlen = addrlen;
 
-	type_ = type;
-	info_.assign(info);
-	params.use_tls_sni = false;
-	if (WFGlobal::get_route_manager()->get(type, &addrinfo, info_, &params,
-										   "", route_result_) < 0)
-	{
-		this->state = WFT_STATE_SYS_ERROR;
-		this->error = errno;
-	}
-	else if (this->init_success())
-		return;
+  type_ = type;
+  info_.assign(info);
+  params.use_tls_sni = false;
+  if (WFGlobal::get_route_manager()->get(type, &addrinfo, info_, &params, "",
+                                         route_result_) < 0) {
+    this->state = WFT_STATE_SYS_ERROR;
+    this->error = errno;
+  } else if (this->init_success())
+    return;
 
-	this->init_failed();
+  this->init_failed();
 }
 
-template<class REQ, class RESP, typename CTX>
-bool WFComplexClientTask<REQ, RESP, CTX>::set_port()
-{
-	if (uri_.port)
-	{
-		int port = atoi(uri_.port);
+template <class REQ, class RESP, typename CTX>
+bool WFComplexClientTask<REQ, RESP, CTX>::set_port() {
+  if (uri_.port) {
+    int port = atoi(uri_.port);
 
-		if (port <= 0 || port > 65535)
-		{
-			this->state = WFT_STATE_TASK_ERROR;
-			this->error = WFT_ERR_URI_PORT_INVALID;
-			return false;
-		}
+    if (port <= 0 || port > 65535) {
+      this->state = WFT_STATE_TASK_ERROR;
+      this->error = WFT_ERR_URI_PORT_INVALID;
+      return false;
+    }
 
-		return true;
-	}
+    return true;
+  }
 
-	if (uri_.scheme)
-	{
-		const char *port_str = WFGlobal::get_default_port(uri_.scheme);
+  if (uri_.scheme) {
+    const char *port_str = WFGlobal::get_default_port(uri_.scheme);
 
-		if (port_str)
-		{
-			uri_.port = strdup(port_str);
-			if (uri_.port)
-				return true;
+    if (port_str) {
+      uri_.port = strdup(port_str);
+      if (uri_.port) return true;
 
-			this->state = WFT_STATE_SYS_ERROR;
-			this->error = errno;
-			return false;
-		}
-	}
+      this->state = WFT_STATE_SYS_ERROR;
+      this->error = errno;
+      return false;
+    }
+  }
 
-	this->state = WFT_STATE_TASK_ERROR;
-	this->error = WFT_ERR_URI_SCHEME_INVALID;
-	return false;
+  this->state = WFT_STATE_TASK_ERROR;
+  this->error = WFT_ERR_URI_SCHEME_INVALID;
+  return false;
 }
 
-template<class REQ, class RESP, typename CTX>
-void WFComplexClientTask<REQ, RESP, CTX>::init_with_uri()
-{
-	if (redirect_)
-		clear_prev_state();
+template <class REQ, class RESP, typename CTX>
+void WFComplexClientTask<REQ, RESP, CTX>::init_with_uri() {
+  if (redirect_) clear_prev_state();
 
-	if (uri_.state == URI_STATE_SUCCESS)
-	{
-		if (this->set_port())
-		{
-			if (this->init_success())
-				return;
-		}
-	}
-	else if (uri_.state == URI_STATE_ERROR)
-	{
-		this->state = WFT_STATE_SYS_ERROR;
-		this->error = uri_.error;
-	}
-	else
-	{
-		this->state = WFT_STATE_TASK_ERROR;
-		this->error = WFT_ERR_URI_PARSE_FAILED;
-	}
+  if (uri_.state == URI_STATE_SUCCESS) {
+    if (this->set_port()) {
+      if (this->init_success()) return;
+    }
+  } else if (uri_.state == URI_STATE_ERROR) {
+    this->state = WFT_STATE_SYS_ERROR;
+    this->error = uri_.error;
+  } else {
+    this->state = WFT_STATE_TASK_ERROR;
+    this->error = WFT_ERR_URI_PARSE_FAILED;
+  }
 
-	this->init_failed();
+  this->init_failed();
 }
 
-template<class REQ, class RESP, typename CTX>
-WFRouterTask *WFComplexClientTask<REQ, RESP, CTX>::route()
-{
-	LOG_TRACE("WFComplexClientTask route");
-	auto&& cb = std::bind(&WFComplexClientTask::router_callback,
-						  this,
-						  std::placeholders::_1);
-	struct WFNSParams params = {
-		.type			=	type_,
-		.uri			=	uri_,
-		.info			=	info_.c_str(),
-		.fixed_addr		=	fixed_addr_,
-		.retry_times	=	retry_times_,
-		.tracing		=	&tracing_,
-	};
+template <class REQ, class RESP, typename CTX>
+WFRouterTask *WFComplexClientTask<REQ, RESP, CTX>::route() {
+  LOG_TRACE("WFComplexClientTask route");
+  auto &&cb = std::bind(&WFComplexClientTask::router_callback, this,
+                        std::placeholders::_1);
+  struct WFNSParams params = {
+      .type = type_,
+      .uri = uri_,
+      .info = info_.c_str(),
+      .fixed_addr = fixed_addr_,
+      .retry_times = retry_times_,
+      .tracing = &tracing_,
+  };
 
-	if (!ns_policy_)   // http task刚初始化的时候为Null 
-	{
-		// 如果没有policy的话，在name service里拿一个出来兜底
-		// 默认policy为 WFDnsResolver
-		WFNameService *ns = WFGlobal::get_name_service();
-		ns_policy_ = ns->get_policy(uri_.host ? uri_.host : "");
-	}
+  if (!ns_policy_)  // http task刚初始化的时候为Null
+  {
+    // 如果没有policy的话，在name service里拿一个出来兜底
+    // 默认policy为 WFDnsResolver
+    WFNameService *ns = WFGlobal::get_name_service();
+    ns_policy_ = ns->get_policy(uri_.host ? uri_.host : "");
+  }
 
-	return ns_policy_->create_router_task(&params, cb);
+  return ns_policy_->create_router_task(&params, cb);
 }
 
-template<class REQ, class RESP, typename CTX>
-void WFComplexClientTask<REQ, RESP, CTX>::router_callback(WFRouterTask *task)
-{
-	LOG_TRACE("WFComplexClientTask router_callback");
-	// 在此处改变了状态
-	this->state = task->get_state();    // 这里就是把WFRouterTask的状态给WFComplexClientTask的state
-	if (this->state == WFT_STATE_SUCCESS)
-		route_result_ = std::move(*task->get_result());   
-	else if (this->state == WFT_STATE_UNDEFINED)
-	{
-		/* should not happend */
-		this->state = WFT_STATE_SYS_ERROR;
-		this->error = ENOSYS;
-	}
-	else
-		this->error = task->get_error();
+template <class REQ, class RESP, typename CTX>
+void WFComplexClientTask<REQ, RESP, CTX>::router_callback(WFRouterTask *task) {
+  LOG_TRACE("WFComplexClientTask router_callback");
+  // 在此处改变了状态
+  this->state =
+      task->get_state();  // 这里就是把WFRouterTask的状态给WFComplexClientTask的state
+  if (this->state == WFT_STATE_SUCCESS)
+    route_result_ = std::move(*task->get_result());
+  else if (this->state == WFT_STATE_UNDEFINED) {
+    /* should not happend */
+    this->state = WFT_STATE_SYS_ERROR;
+    this->error = ENOSYS;
+  } else
+    this->error = task->get_error();
 }
 
-template<class REQ, class RESP, typename CTX>
-void WFComplexClientTask<REQ, RESP, CTX>::dispatch()
-{
-	switch (this->state)
-	{
-	case WFT_STATE_UNDEFINED:  // 第一次是这个状态
-		LOG_TRACE("dispatch WFT_STATE_UNDEFINED");
-		if (this->check_request())   // 这里直接return true // 其他如mysql这些更为复杂可重写
-		{
-			// 这里 RouteManager::RouteResult route_result_;
-			// 通过dns来产生request_object
-			if (this->route_result_.request_object)   // 第一次走着初始化是空的，直接到下面产生router_task_
-			{
-	case WFT_STATE_SUCCESS:    // 第二次就直接success了
-				LOG_TRACE("dispatch WFT_STATE_SUCCESS");
-				this->set_request_object(route_result_.request_object);
-				// 此处实际上调用了WFClientTask的父类的父类CommRequest的dispatch
-				// 调用scheduler->request
-				this->WFClientTask<REQ, RESP>::dispatch();  
-				return;
-			}
-			// 第一次直接过来了，产生route做dns解析
-			// 产生一个router_task_插入到前面去做dns解析
-			router_task_ = this->route();
-			series_of(this)->push_front(this);
-			series_of(this)->push_front(router_task_);
-			// router_task_ --> WFComplexClientTask（this) 串起来
-		}
+template <class REQ, class RESP, typename CTX>
+void WFComplexClientTask<REQ, RESP, CTX>::dispatch() {
+  switch (this->state) {
+    case WFT_STATE_UNDEFINED:  // 第一次是这个状态
+      LOG_TRACE("dispatch WFT_STATE_UNDEFINED");
+      if (this->check_request())  // 这里直接return true //
+                                  // 其他如mysql这些更为复杂可重写
+      {
+        // 这里 RouteManager::RouteResult route_result_;
+        // 通过dns来产生request_object
+        if (this->route_result_
+                .request_object)  // 第一次走着初始化是空的，直接到下面产生router_task_
+        {
+          case WFT_STATE_SUCCESS:  // 第二次就直接success了
+            LOG_TRACE("dispatch WFT_STATE_SUCCESS");
+            this->set_request_object(route_result_.request_object);
+            // 此处实际上调用了WFClientTask的父类的父类CommRequest的dispatch
+            // 调用scheduler->request
+            this->WFClientTask<REQ, RESP>::dispatch();
+            return;
+        }
+        // 第一次直接过来了，产生route做dns解析
+        // 产生一个router_task_插入到前面去做dns解析
+        router_task_ = this->route();
+        series_of(this)->push_front(this);
+        series_of(this)->push_front(router_task_);
+        // router_task_ --> WFComplexClientTask（this) 串起来
+      }
 
-	default:
-		break;
-	}
+    default:
+      break;
+  }
 
-	this->subtask_done();
+  this->subtask_done();
 }
 
-template<class REQ, class RESP, typename CTX>
-void WFComplexClientTask<REQ, RESP, CTX>::switch_callback(WFTimerTask *)
-{
-	if (!redirect_)
-	{
-		if (this->state == WFT_STATE_SYS_ERROR && this->error < 0)
-		{
-			this->state = WFT_STATE_SSL_ERROR;
-			this->error = -this->error;
-		}
+template <class REQ, class RESP, typename CTX>
+void WFComplexClientTask<REQ, RESP, CTX>::switch_callback(WFTimerTask *) {
+  if (!redirect_) {
+    if (this->state == WFT_STATE_SYS_ERROR && this->error < 0) {
+      this->state = WFT_STATE_SSL_ERROR;
+      this->error = -this->error;
+    }
 
-		if (this->callback)
-			this->callback(this);
-	}
+    if (this->callback) this->callback(this);
+  }
 
-	if (redirect_)
-	{
-		redirect_ = false;
-		clear_resp();
-		this->target = NULL;
-		series_of(this)->push_front(this);
-	}
-	else
-		delete this;
+  if (redirect_) {
+    redirect_ = false;
+    clear_resp();
+    this->target = NULL;
+    series_of(this)->push_front(this);
+  } else
+    delete this;
 }
 
-template<class REQ, class RESP, typename CTX>
-SubTask *WFComplexClientTask<REQ, RESP, CTX>::done()
-{
-	SeriesWork *series = series_of(this);
+template <class REQ, class RESP, typename CTX>
+SubTask *WFComplexClientTask<REQ, RESP, CTX>::done() {
+  SeriesWork *series = series_of(this);
 
-	if (router_task_)
-	{
-		router_task_ = NULL;
-		return series->pop();
-	}
+  if (router_task_) {
+    router_task_ = NULL;
+    return series->pop();
+  }
 
-	bool is_user_request = this->finish_once();
+  bool is_user_request = this->finish_once();
 
-	if (ns_policy_ && route_result_.request_object)
-	{
-		if (this->state == WFT_STATE_SYS_ERROR)
-			ns_policy_->failed(&route_result_, &tracing_, this->target);
-		else
-			ns_policy_->success(&route_result_, &tracing_, this->target);
-	}
+  if (ns_policy_ && route_result_.request_object) {
+    if (this->state == WFT_STATE_SYS_ERROR)
+      ns_policy_->failed(&route_result_, &tracing_, this->target);
+    else
+      ns_policy_->success(&route_result_, &tracing_, this->target);
+  }
 
-	if (this->state == WFT_STATE_SUCCESS)
-	{
-		if (!is_user_request)
-			return this;
-	}
-	else if (this->state == WFT_STATE_SYS_ERROR)
-	{
-		if (retry_times_ < retry_max_)
-		{
-			redirect_ = true;
-			if (ns_policy_)
-				route_result_.clear();
+  if (this->state == WFT_STATE_SUCCESS) {
+    if (!is_user_request) return this;
+  } else if (this->state == WFT_STATE_SYS_ERROR) {
+    if (retry_times_ < retry_max_) {
+      redirect_ = true;
+      if (ns_policy_) route_result_.clear();
 
-			this->state = WFT_STATE_UNDEFINED;
-			this->error = 0;
-			this->timeout_reason = 0;
-			retry_times_++;
-		}
-	}
+      this->state = WFT_STATE_UNDEFINED;
+      this->error = 0;
+      this->timeout_reason = 0;
+      retry_times_++;
+    }
+  }
 
-	/*
-	 * When target is NULL, it's very likely that we are in the caller's
-	 * thread or DNS thread (dns failed). Running a timer will switch callback
-	 * function to a handler thread, and this can prevent stack overflow.
-	 */
-	if (!this->target)
-	{
-		auto&& cb = std::bind(&WFComplexClientTask::switch_callback,
-							  this,
-							  std::placeholders::_1);
-		WFTimerTask *timer;
+  /*
+   * When target is NULL, it's very likely that we are in the caller's
+   * thread or DNS thread (dns failed). Running a timer will switch callback
+   * function to a handler thread, and this can prevent stack overflow.
+   */
+  if (!this->target) {
+    auto &&cb = std::bind(&WFComplexClientTask::switch_callback, this,
+                          std::placeholders::_1);
+    WFTimerTask *timer;
 
-		timer = WFTaskFactory::create_timer_task(0, 0, std::move(cb));
-		series->push_front(timer);
-	}
-	else
-		this->switch_callback(NULL);
+    timer = WFTaskFactory::create_timer_task(0, 0, std::move(cb));
+    series->push_front(timer);
+  } else
+    this->switch_callback(NULL);
 
-	return series->pop();
+  return series->pop();
 }
 
 /**********Template Network Factory**********/
 
-template<class REQ, class RESP>
-WFNetworkTask<REQ, RESP> *
-WFNetworkTaskFactory<REQ, RESP>::create_client_task(TransportType type,
-													const std::string& host,
-													unsigned short port,
-													int retry_max,
-													std::function<void (WFNetworkTask<REQ, RESP> *)> callback)
-{
-	auto *task = new WFComplexClientTask<REQ, RESP>(retry_max, std::move(callback));
-	char buf[8];
-	std::string url = "scheme://";
-	ParsedURI uri;
+template <class REQ, class RESP>
+WFNetworkTask<REQ, RESP> *WFNetworkTaskFactory<REQ, RESP>::create_client_task(
+    TransportType type, const std::string &host, unsigned short port,
+    int retry_max, std::function<void(WFNetworkTask<REQ, RESP> *)> callback) {
+  auto *task =
+      new WFComplexClientTask<REQ, RESP>(retry_max, std::move(callback));
+  char buf[8];
+  std::string url = "scheme://";
+  ParsedURI uri;
 
-	sprintf(buf, "%u", port);
-	url += host;
-	url += ":";
-	url += buf;
-	URIParser::parse(url, uri);
-	task->init(std::move(uri));
-	task->set_transport_type(type);
-	return task;
+  sprintf(buf, "%u", port);
+  url += host;
+  url += ":";
+  url += buf;
+  URIParser::parse(url, uri);
+  task->init(std::move(uri));
+  task->set_transport_type(type);
+  return task;
 }
 
-template<class REQ, class RESP>
-WFNetworkTask<REQ, RESP> *
-WFNetworkTaskFactory<REQ, RESP>::create_client_task(TransportType type,
-													const std::string& url,
-													int retry_max,
-													std::function<void (WFNetworkTask<REQ, RESP> *)> callback)
-{
-	auto *task = new WFComplexClientTask<REQ, RESP>(retry_max, std::move(callback));
-	ParsedURI uri;
+template <class REQ, class RESP>
+WFNetworkTask<REQ, RESP> *WFNetworkTaskFactory<REQ, RESP>::create_client_task(
+    TransportType type, const std::string &url, int retry_max,
+    std::function<void(WFNetworkTask<REQ, RESP> *)> callback) {
+  auto *task =
+      new WFComplexClientTask<REQ, RESP>(retry_max, std::move(callback));
+  ParsedURI uri;
 
-	URIParser::parse(url, uri);
-	task->init(std::move(uri));
-	task->set_transport_type(type);
-	return task;
+  URIParser::parse(url, uri);
+  task->init(std::move(uri));
+  task->set_transport_type(type);
+  return task;
 }
 
-template<class REQ, class RESP>
-WFNetworkTask<REQ, RESP> *
-WFNetworkTaskFactory<REQ, RESP>::create_client_task(TransportType type,
-													const ParsedURI& uri,
-													int retry_max,
-													std::function<void (WFNetworkTask<REQ, RESP> *)> callback)
-{
-	auto *task = new WFComplexClientTask<REQ, RESP>(retry_max, std::move(callback));
+template <class REQ, class RESP>
+WFNetworkTask<REQ, RESP> *WFNetworkTaskFactory<REQ, RESP>::create_client_task(
+    TransportType type, const ParsedURI &uri, int retry_max,
+    std::function<void(WFNetworkTask<REQ, RESP> *)> callback) {
+  auto *task =
+      new WFComplexClientTask<REQ, RESP>(retry_max, std::move(callback));
 
-	task->init(uri);
-	task->set_transport_type(type);
-	return task;
+  task->init(uri);
+  task->set_transport_type(type);
+  return task;
 }
 
-template<class REQ, class RESP>
-WFNetworkTask<REQ, RESP> *
-WFNetworkTaskFactory<REQ, RESP>::create_server_task(CommService *service,
-				std::function<void (WFNetworkTask<REQ, RESP> *)>& process)
-{
-	return new WFServerTask<REQ, RESP>(service, WFGlobal::get_scheduler(),
-									   process);
+template <class REQ, class RESP>
+WFNetworkTask<REQ, RESP> *WFNetworkTaskFactory<REQ, RESP>::create_server_task(
+    CommService *service,
+    std::function<void(WFNetworkTask<REQ, RESP> *)> &process) {
+  return new WFServerTask<REQ, RESP>(service, WFGlobal::get_scheduler(),
+                                     process);
 }
 
 /**********Server Factory**********/
 
-class WFServerTaskFactory
-{
-public:
-	static WFHttpTask *create_http_task(CommService *service,
-					std::function<void (WFHttpTask *)>& process);
-	static WFMySQLTask *create_mysql_task(CommService *service,
-					std::function<void (WFMySQLTask *)>& process);
+class WFServerTaskFactory {
+ public:
+  static WFHttpTask *create_http_task(
+      CommService *service, std::function<void(WFHttpTask *)> &process);
+  static WFMySQLTask *create_mysql_task(
+      CommService *service, std::function<void(WFMySQLTask *)> &process);
 };
 
 /**********Template Thread Task Factory**********/
 
-template<class INPUT, class OUTPUT>
-class __WFThreadTask : public WFThreadTask<INPUT, OUTPUT>
-{
-protected:
-	virtual void execute()
-	{
-		LOG_TRACE("__WFThreadTask execute routine");
-		this->routine(&this->input, &this->output);
-	}
+template <class INPUT, class OUTPUT>
+class __WFThreadTask : public WFThreadTask<INPUT, OUTPUT> {
+ protected:
+  virtual void execute() {
+    LOG_TRACE("__WFThreadTask execute routine");
+    this->routine(&this->input, &this->output);
+  }
 
-protected:
-	std::function<void (INPUT *, OUTPUT *)> routine;
+ protected:
+  std::function<void(INPUT *, OUTPUT *)> routine;
 
-public:
-	__WFThreadTask(ExecQueue *queue, Executor *executor,
-				   std::function<void (INPUT *, OUTPUT *)>&& rt,
-				   std::function<void (WFThreadTask<INPUT, OUTPUT> *)>&& cb) :
-		WFThreadTask<INPUT, OUTPUT>(queue, executor, std::move(cb)),
-		routine(std::move(rt))
-	{
-		LOG_TRACE("__WFThreadTask constructor");
-	}
+ public:
+  __WFThreadTask(ExecQueue *queue, Executor *executor,
+                 std::function<void(INPUT *, OUTPUT *)> &&rt,
+                 std::function<void(WFThreadTask<INPUT, OUTPUT> *)> &&cb)
+      : WFThreadTask<INPUT, OUTPUT>(queue, executor, std::move(cb)),
+        routine(std::move(rt)) {
+    LOG_TRACE("__WFThreadTask constructor");
+  }
 };
 
-template<class INPUT, class OUTPUT>
-WFThreadTask<INPUT, OUTPUT> *
-WFThreadTaskFactory<INPUT, OUTPUT>::create_thread_task(const std::string& queue_name,
-						std::function<void (INPUT *, OUTPUT *)> routine,
-						std::function<void (WFThreadTask<INPUT, OUTPUT> *)> callback)
-{	
-	LOG_TRACE("create_thread_task");
-	// 隐藏routine
-	return new __WFThreadTask<INPUT, OUTPUT>(WFGlobal::get_exec_queue(queue_name),
-											 WFGlobal::get_compute_executor(),
-											 std::move(routine),
-											 std::move(callback));
+template <class INPUT, class OUTPUT>
+WFThreadTask<INPUT, OUTPUT>
+    *WFThreadTaskFactory<INPUT, OUTPUT>::create_thread_task(
+        const std::string &queue_name,
+        std::function<void(INPUT *, OUTPUT *)> routine,
+        std::function<void(WFThreadTask<INPUT, OUTPUT> *)> callback) {
+  LOG_TRACE("create_thread_task");
+  // 隐藏routine
+  return new __WFThreadTask<INPUT, OUTPUT>(
+      WFGlobal::get_exec_queue(queue_name), WFGlobal::get_compute_executor(),
+      std::move(routine), std::move(callback));
 }
 
-template<class INPUT, class OUTPUT>
-WFThreadTask<INPUT, OUTPUT> *
-WFThreadTaskFactory<INPUT, OUTPUT>::create_thread_task(ExecQueue *queue, Executor *executor,
-						std::function<void (INPUT *, OUTPUT *)> routine,
-						std::function<void (WFThreadTask<INPUT, OUTPUT> *)> callback)
-{
-	return new __WFThreadTask<INPUT, OUTPUT>(queue, executor,
-											 std::move(routine),
-											 std::move(callback));
+template <class INPUT, class OUTPUT>
+WFThreadTask<INPUT, OUTPUT>
+    *WFThreadTaskFactory<INPUT, OUTPUT>::create_thread_task(
+        ExecQueue *queue, Executor *executor,
+        std::function<void(INPUT *, OUTPUT *)> routine,
+        std::function<void(WFThreadTask<INPUT, OUTPUT> *)> callback) {
+  return new __WFThreadTask<INPUT, OUTPUT>(queue, executor, std::move(routine),
+                                           std::move(callback));
 }
 
-template<class INPUT, class OUTPUT>
-class __WFThreadTask__ : public __WFThreadTask<INPUT, OUTPUT>
-{
-private:
-	virtual SubTask *done() { return NULL; }
+template <class INPUT, class OUTPUT>
+class __WFThreadTask__ : public __WFThreadTask<INPUT, OUTPUT> {
+ private:
+  virtual SubTask *done() { return NULL; }
 
-public:
-	using __WFThreadTask<INPUT, OUTPUT>::__WFThreadTask;
+ public:
+  using __WFThreadTask<INPUT, OUTPUT>::__WFThreadTask;
 };
 
-template<class INPUT, class OUTPUT>
-WFMultiThreadTask<INPUT, OUTPUT> *
-WFThreadTaskFactory<INPUT, OUTPUT>::create_multi_thread_task(const std::string& queue_name,
-						std::function<void (INPUT *, OUTPUT *)> routine, size_t nthreads,
-						std::function<void (WFMultiThreadTask<INPUT, OUTPUT> *)> callback)
-{
-	WFThreadTask<INPUT, OUTPUT> **tasks = new WFThreadTask<INPUT, OUTPUT> *[nthreads];
-	char buf[32];
-	size_t i;
+template <class INPUT, class OUTPUT>
+WFMultiThreadTask<INPUT, OUTPUT>
+    *WFThreadTaskFactory<INPUT, OUTPUT>::create_multi_thread_task(
+        const std::string &queue_name,
+        std::function<void(INPUT *, OUTPUT *)> routine, size_t nthreads,
+        std::function<void(WFMultiThreadTask<INPUT, OUTPUT> *)> callback) {
+  WFThreadTask<INPUT, OUTPUT> **tasks =
+      new WFThreadTask<INPUT, OUTPUT> *[nthreads];
+  char buf[32];
+  size_t i;
 
-	for (i = 0; i < nthreads; i++)
-	{
-		sprintf(buf, "-%zu@MTT", i);
-		tasks[i] = new __WFThreadTask__<INPUT, OUTPUT>
-							(WFGlobal::get_exec_queue(queue_name + buf),
-							 WFGlobal::get_compute_executor(),
-							 std::function<void (INPUT *, OUTPUT *)>(routine),
-							 nullptr);
-	}
+  for (i = 0; i < nthreads; i++) {
+    sprintf(buf, "-%zu@MTT", i);
+    tasks[i] = new __WFThreadTask__<INPUT, OUTPUT>(
+        WFGlobal::get_exec_queue(queue_name + buf),
+        WFGlobal::get_compute_executor(),
+        std::function<void(INPUT *, OUTPUT *)>(routine), nullptr);
+  }
 
-	auto *mt = new WFMultiThreadTask<INPUT, OUTPUT>(tasks, nthreads, std::move(callback));
-	delete []tasks;
-	return mt;
+  auto *mt = new WFMultiThreadTask<INPUT, OUTPUT>(tasks, nthreads,
+                                                  std::move(callback));
+  delete[] tasks;
+  return mt;
 }
-

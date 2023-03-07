@@ -6,7 +6,7 @@ task 的各种状态
 
 ### WFThreadTask
 
-> 继承 ExecRequest
+> 继承 ExecRequest， 需要传入 class INPUT, class OUTPUT 两个模板参数
 
 public functions :
 * start: 开始任务 
@@ -29,7 +29,7 @@ protected members:
 
 ### WFMultiThreadTask
 
-> 继承 ParallelTask
+> 继承 ParallelTask，需要传入 class INPUT, class OUTPUT 两个模板参数
 
 public functions: 
 * start: 开始任务
@@ -53,7 +53,7 @@ public members:
 
 ### WFNetworkTask
 
-> 继承 CommRequest
+> 继承 CommRequest，需要传入class REQ, class RESP两个参数
 
 public functions: 
 * start: 开始任务
@@ -116,7 +116,7 @@ public members:
 
 ### WFFileTask
 
-> 继承 IORequest
+> 继承 IORequest，需要传入 class ARGS 一个参数。
 
 public functions: 
 * start: 开始任务
