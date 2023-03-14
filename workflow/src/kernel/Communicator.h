@@ -199,6 +199,7 @@ CommService就是服务了，主要是new_session()的实现，因为对server�
 */
 class CommService {
  public:
+ // 初始化配置参数，并不做创建网络通道的事情，值是为后面做准备
   int init(const struct sockaddr *bind_addr, socklen_t addrlen,
            int listen_timeout, int response_timeout);
   void deinit();

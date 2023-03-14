@@ -1148,12 +1148,15 @@ int Communicator::create_handler_threads(size_t handler_threads) {
  * @return int 0 : 成功 -1 : 失败
  */
 int Communicator::create_poller(size_t poller_threads) {
+  // 这个 params 是 传给 poller 的参数，这里面的 callback 是为了让 poller
+  // 将接收到的数据传回给线程池。
   struct poller_params params = {
       .max_open_files = 65536,
       .create_message = Communicator::create_message,
-      .partial_written = Communicator::partial_written,
+      .partial_written =
+          Communicator::partial_written,  // poller 中写事件的回调。
       .callback = Communicator::callback,
-      .context = this};
+      .context = this};  // 上下文即当前 Communicator 对象。
 
   this->queue = msgqueue_create(4096, sizeof(struct poller_result));
   if (this->queue)  // queue若成功创建
