@@ -23,6 +23,9 @@
 #include "Communicator.h"
 #include "SubTask.h"
 
+// 一个请求的属性有Task和Session,
+// Task 掌管请求的分发和结束
+// Session掌管请求的通信和处理
 class SleepRequest : public SubTask, public SleepSession {
  public:
   SleepRequest(CommScheduler *scheduler) {
@@ -33,7 +36,12 @@ class SleepRequest : public SubTask, public SleepSession {
  public:
   virtual void dispatch() {
     LOG_TRACE("SleepRequest dispatch");
+    // 往poller 添加定时器,到时间了自动触发.
     if (this->scheduler->sleep(this) < 0) {
+      // 若添加失败,则结束当前任务分发.
+      // 添加失败的原因有两个,
+      // 第一个就是duration设置错误,此时 errno 没有值.
+      // 第二个就是 __poller_node 节点 malloc 失败.
       this->state = SS_STATE_ERROR;
       this->error = errno;
       this->subtask_done();

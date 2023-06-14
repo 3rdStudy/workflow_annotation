@@ -79,7 +79,12 @@ void sig_handler(int signo) { wait_group.done(); }
 
 int main() {
   signal(SIGINT, sig_handler);
-
+  struct 
+  {
+      double b;
+      int a;
+  } st;
+  spdlog::critical("int: {}, unsigned: {}, ptr: {}, st: {}", sizeof(int), sizeof(unsigned), sizeof(void*), sizeof(st));
   WFHttpServer server(process);
   uint16_t port = 8888;
 

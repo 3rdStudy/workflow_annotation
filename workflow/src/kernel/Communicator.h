@@ -15,7 +15,7 @@
 
   Author: Xie Han (xiehan@sogou-inc.com)
 */
-
+ 
 #ifndef _COMMUNICATOR_H_
 #define _COMMUNICATOR_H_
 
@@ -148,7 +148,7 @@ class CommMessageIn : private poller_message_t {
 /*
 CommSession是一次req->resp的交互，主要要实现message_in(),
 message_out()等几个虚函数，让核心知道怎么产生消息。
-对server来讲，session是被动产生的
+对server来讲，session是被动产生的。即 session 是客户端和服务端通信的会话。
 */
 class CommSession {
  private:

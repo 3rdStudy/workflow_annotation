@@ -25,7 +25,7 @@
  * 但这个过程是通过ParallelTask::dispatch()顺序依次分发的
  * 另外从服务端接收到数据，放进msgqueue,网络线程池触发handle,每次都必须调用subtask_done，
  * 最终调用用户注册的回掉函数，如果是基于此，并行处理的主要机制其实就是利用queue的特性，多个线程调用各自的注册的回掉函数；
- *
+ * 可以看到subtask_done 里面调用的实际上就是done,只是多了些兄弟任务的分发和父任务的处理罢了
  */
 void SubTask::subtask_done() {
   SubTask *cur = this;
@@ -44,9 +44,17 @@ void SubTask::subtask_done() {
       next->parent = parent;
       next->entry = entry;
       if (parent) *entry = next;
+      // 不同任务分发至不同的处理请求
+      // 切换到排在后面的兄弟任务,执行兄弟任务的分发,然后break.
+      // 这样做的原理是,任务都是顺序分发的,上一个任务分发完毕,就执行下一个.
+      // 且分发完,就会执行subtask_done,在其中执行了当前任务的done后,又执行了下一个任务的分发
+      next->dispatch();  
 
-      next->dispatch();  // 不同任务分发至不同的处理请求
-    } else if (parent)   // 如果没有下一个任务了，就往上走
+      // 如果没有下一个任务了，且父节点不为空,说明父节点的子任务执行完毕,
+      // 则更新父节点的nleft状态,若父节点的剩下的子任务也为空,就执行父任务的substask_done.
+      // 表明父节点没有子任务,该结束了.
+      // TODO: 有没有可能出现next为空时,nleft减去1后不为0的情况?
+    } else if (parent)   
     {
       if (__sync_sub_and_fetch(&parent->nleft, 1) == 0) {
         cur = parent;
@@ -58,6 +66,8 @@ void SubTask::subtask_done() {
   }
 }
 
+// 并行任务的分发,就是依次调用所有子任务的分发,最后调用 subtask_done(),
+// 表明子任务分发完毕
 void ParallelTask::dispatch() {
   SubTask **end = this->subtasks + this->subtasks_nr;
   SubTask **p = this->subtasks;

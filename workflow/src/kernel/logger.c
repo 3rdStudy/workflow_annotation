@@ -35,7 +35,7 @@ static struct {
 } s_flog;
 
 static volatile int s_logger;
-static volatile LogLevel s_logLevel = LogLevel_INFO;
+static volatile LogLevel s_logLevel = LogLevel_TRACE;
 static volatile long s_flushInterval = 0; /* msec, 0 is auto flush off */
 static volatile int s_initialized = 0; /* false */
 

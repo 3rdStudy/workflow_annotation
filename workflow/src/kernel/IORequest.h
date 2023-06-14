@@ -43,7 +43,7 @@ public:
 
 protected:
 	int state;
-	int error;
+	int error;  
 
 protected:
 	IOService *service;

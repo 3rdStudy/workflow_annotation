@@ -26,6 +26,8 @@ class ParallelTask;
 // SubTask是所有Task类型的基类
 // SubTask要求用户实现两个接口，dispatch和done。
 // https://github.com/sogou/workflow/issues/192
+// 任务只有两个属性,分发和销毁
+// 至于任务的执行,因为都是异步的,所以是事先注册好了回调,回调完后就销毁.
 class SubTask {
  public:
   // dispatch代表任务的发起，可以是任何行为，
@@ -64,6 +66,7 @@ class SubTask {
   friend class ParallelTask;
 };
 
+// 并行任务也没有实现done,done代表任务的结束,留给后续继承的子类去实现.
 class ParallelTask : public SubTask {
  public:
   ParallelTask(SubTask **subtasks, size_t n) {

@@ -84,6 +84,8 @@ void sig_handler(int signo) { wait_group.done(); }
 
 int main() {
   signal(SIGINT, sig_handler);
+  logger_initConsoleLogger(stderr);
+  logger_setLevel(LogLevel_TRACE);
 
   std::string url = "www.baidu.com";
   if (strncasecmp(url.c_str(), "http://", 7) != 0 &&
